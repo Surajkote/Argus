@@ -1,19 +1,4 @@
-# Python
+venv/
 __pycache__/
 *.pyc
-*.pyo
-
-# Virtual environment
-venv/
-.env/
-
-# Mac files
-.DS_Store
-
-# IDE
-.vscode/
-.idea/
-chrome_profile/
-venv/
-__pycache__/
-.DS_Store
+.env

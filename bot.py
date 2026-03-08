@@ -1,95 +1,77 @@
+import requests
+import ollama
 import time
-import sys
-from playwright.sync_api import sync_playwright
-from playwright_stealth import Stealth
 
-def join_google_meet(meet_url, bot_name="Notetaker Bot"):
-    print("Launching bot in Anonymous mode...")
+# --- CONFIGURATION ---
+VEXA_API_KEY = "klZgy9QxOwMRwhZ2FaGEackoAHhQcMjfT3Nr9Gvq" # Replace with your real key from vexa.ai dashboard
+MEETING_ID = "kai-bcjm-dyq" # ONLY the meeting ID, not the full URL
+
+def send_bot_to_meeting(meeting_id):
+    """Tells Vexa to send a bot to the meeting."""
+    print(f"🤖 Sending bot to Google Meet: {meeting_id}")
     
-    with Stealth().use_sync(sync_playwright()) as p:
-        browser = p.chromium.launch(
-            headless=False, 
-            args=[
-                "--use-fake-ui-for-media-stream",
-                "--use-fake-device-for-media-stream",
-                "--disable-blink-features=AutomationControlled"
-            ]
-        )
+    # Corrected Endpoint and Headers based on Vexa Docs
+    api_url = "https://api.cloud.vexa.ai/bots"
+    headers = {
+        "X-API-Key": VEXA_API_KEY,
+        "Content-Type": "application/json"
+    }
+    
+    # Corrected Payload structure
+    payload = {
+        "platform": "google_meet",
+        "native_meeting_id": meeting_id
+    }
+    
+    try:
+        response = requests.post(api_url, headers=headers, json=payload)
+        response.raise_for_status() # This will raise an error if the request fails (e.g. 401 Unauthorized)
         
-        # Standard ephemeral context (no saved logins)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            permissions=['camera', 'microphone']
-        )
-        
-        page = context.new_page()
-        
-        try:
-            print(f"Navigating to {meet_url}...")
-            page.goto(meet_url)
-            
-            # Let the UI settle
-            time.sleep(4)
-            
-            print("Looking for the name input field...")
-            # We use multiple selectors to catch different versions of the Meet UI
-            name_input = page.locator('input[aria-label="Your name"], input[placeholder="Your name"], input[type="text"]')
-            
-            if name_input.count() > 0:
-                name_input.first.fill(bot_name)
-                print(f"Entered name: {bot_name}")
-            else:
-                print("⚠️ COULD NOT FIND NAME INPUT!")
-                print("Google might be demanding a login, or the UI changed.")
-                page.screenshot(path="debug_screen.png")
-                print("📸 Saved a screenshot to 'debug_screen.png' so you can see what the bot sees.")
-                
-            time.sleep(2)
-            
-            print("Attempting to click Join...")
-            join_button = page.locator('button:has-text("Ask to join"), button:has-text("Join now"), button:has-text("Join")')
-            
-            if join_button.count() > 0:
-                join_button.first.click()
-                print("✅ Successfully clicked join! Waiting for host to admit...")
-            else:
-                print("⚠️ COULD NOT FIND JOIN BUTTON!")
-                page.screenshot(path="debug_screen.png")
-            
-            print("\n" + "="*50)
-            print("BOT IS ACTIVE. Press Ctrl+C in this terminal to kill it.")
-            print("="*50 + "\n")
-            
-            # Infinite loop to keep the bot alive until you manually kill it
-            while True:
-                time.sleep(1)
-                
-        except KeyboardInterrupt:
-            # THIS IS THE FIX FOR THE LINGERING BOT
-            print("\n🛑 Shutdown signal received (Ctrl+C). Exiting gracefully...")
-            
-            # Try to actually click the red "Leave Call" button if we are in the meeting
-            try:
-                leave_button = page.locator('button[aria-label="Leave call"]')
-                if leave_button.count() > 0:
-                    leave_button.first.click()
-                    print("Clicked the 'Leave call' button.")
-                    time.sleep(1)
-            except Exception:
-                pass # If the button isn't there, just move on
-                
-        except Exception as e:
-            print(f"\n❌ An unexpected error occurred: {e}")
-            page.screenshot(path="error_screen.png")
-            
-        finally:
-            print("Sweeping up processes and closing the browser...")
-            context.close()
-            browser.close()
-            sys.exit(0) # Forces python to quit immediately
+        print("✅ Bot successfully requested!")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Failed to join.")
+        if e.response is not None:
+            print(f"Error details: {e.response.text}")
+        else:
+            print(f"Connection Error: {e}")
+        return None
 
+def summarize_transcript(transcript_text):
+    """Uses your local Ollama model to summarize the text."""
+    print("🧠 Generating summary using local Ollama...")
+    
+    try:
+        # Assuming you have a small model like 'phi3' or 'llama3' pulled via Ollama
+        response = ollama.chat(model='llama3.2:1b', messages=[
+            {
+                'role': 'system',
+                'content': 'You are an expert meeting assistant. Summarize the following meeting transcript into key bullet points and action items.'
+            },
+            {
+                'role': 'user',
+                'content': transcript_text
+            }
+        ])
+        return response['message']['content']
+    except Exception as e:
+         print(f"❌ Ollama Error: Is the Ollama app running? Did you pull the model? Error: {e}")
+         return None
+
+# --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    # ---> PASTE YOUR GOOGLE MEET LINK HERE <---
-    MEETING_LINK = "https://meet.google.com/crv-zjrb-svz" 
+    # 1. Request the bot to join
+    bot_response = send_bot_to_meeting(MEETING_ID)
     
-    join_google_meet(MEETING_LINK)
+    if bot_response:
+        print("\n⏳ Bot is joining the meeting. Please wait a few seconds and check your Google Meet tab.")
+        print("You will need to 'Admit' the bot if you are the host.")
+        
+        # NOTE: For phase 1, we are just verifying the bot joins.
+        dummy_transcript = "Alice: Hi guys, let's build a meetbot. Bob: Sounds good, let's use Vexa AI for the bot and Ollama for the summary."
+        
+        # 2. Summarize (Testing local Ollama setup)
+        summary = summarize_transcript(dummy_transcript)
+        if summary:
+            print("\n📝 --- TEST MEETING SUMMARY ---")
+            print(summary)
